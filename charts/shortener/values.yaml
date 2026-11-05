@@ -5,7 +5,7 @@
 
 image:
   repository: ghcr.io/abbaskhalifa40-art/k8s-gitops-shortener
-  tag: "69b0bf1" # replaced by CI with the commit SHA
+  tag: "3768726" # replaced by CI with the commit SHA
   pullPolicy: IfNotPresent
 
 replicaCount: 2
