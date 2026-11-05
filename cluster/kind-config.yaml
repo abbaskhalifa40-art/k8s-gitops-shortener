@@ -1,0 +1,17 @@
+# kind-config.yaml
+# A 3-node Kubernetes cluster running in Docker on your laptop:
+# 1 control plane + 2 workers, so pod spreading and disruption budgets
+# actually mean something.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gitops
+nodes:
+  - role: control-plane
+    # Forward port 80 on your Mac to the Traefik ingress NodePort, so
+    # http://shortener.localtest.me works in the browser.
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 80
+        protocol: TCP
+  - role: worker
+  - role: worker

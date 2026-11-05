@@ -1,0 +1,75 @@
+# Redis as a StatefulSet: a stable name and its own persistent volume,
+# so short links survive a pod restart.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    {{- include "shortener.redisSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "shortener.redisSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "shortener.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # A high UID that can't clash with a real user on the node.
+        # fsGroup makes the data volume writable by it.
+        runAsUser: 10999
+        runAsGroup: 10999
+        fsGroup: 10999
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          # appendonly: write every change to disk, so data isn't lost
+          # if the pod restarts.
+          args: ["--appendonly", "yes", "--dir", "/data"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            {{- include "shortener.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage }}

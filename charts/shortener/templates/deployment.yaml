@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  # When the HPA is on, it owns the replica count. Setting it here too
+  # would make every Argo CD sync fight the autoscaler.
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "shortener.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below full capacity during a deploy
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "shortener.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      automountServiceAccountToken: false # the app never calls the K8s API
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      # Spread pods across nodes so one node failing can't take all of them.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "shortener.selectorLabels" . | nindent 14 }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: REDIS_URL
+              value: "redis://{{ .Release.Name }}-redis:6379/0"
+            - name: APP_VERSION
+              value: {{ .Values.image.tag | quote }}
+          # Liveness: restart the container if it hangs.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # Readiness: only send traffic once Redis is reachable.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "shortener.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp # writable scratch space with a read-only root
+      volumes:
+        - name: tmp
+          emptyDir: {}

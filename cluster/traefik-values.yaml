@@ -1,0 +1,12 @@
+# Traefik is the ingress controller: it routes http://<host> to the
+# right Service. (ingress-nginx was retired by the Kubernetes project,
+# so Traefik is used instead.)
+service:
+  spec:
+    type: NodePort # no cloud load balancer on kind
+ports:
+  web:
+    nodePort: 30080
+ingressClass:
+  enabled: true
+  isDefaultClass: true

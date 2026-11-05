@@ -1,0 +1,10 @@
+configs:
+  params:
+    # TLS is terminated at the ingress, so the Argo CD server itself
+    # runs plain HTTP. Fine for a local cluster.
+    server.insecure: true
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: argocd.localtest.me

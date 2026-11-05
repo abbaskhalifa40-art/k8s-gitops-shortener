@@ -1,0 +1,51 @@
+# values.yaml
+# Default settings for the chart. Argo CD deploys with these values.
+# CI updates image.tag automatically after each successful build, which
+# is what makes this GitOps: Git is the source of truth for what runs.
+
+image:
+  repository: ghcr.io/abbaskhalifa40-art/k8s-gitops-shortener
+  tag: "dev" # replaced by CI with the commit SHA
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi # memory limit only: CPU limits cause throttling
+
+# Scale between 2 and 5 pods based on CPU usage.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: traefik
+  host: shortener.localtest.me # localtest.me always resolves to 127.0.0.1
+
+# Creates a ServiceMonitor so Prometheus scrapes /metrics.
+# Needs the kube-prometheus-stack CRDs installed in the cluster.
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  # Must match the Prometheus release name so it picks this up.
+  releaseLabel: monitoring
+
+networkPolicy:
+  enabled: true
+
+redis:
+  image: redis:7.4-alpine
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

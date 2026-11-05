@@ -1,0 +1,173 @@
+# ci.yml
+# The GitOps pipeline. On every push to main:
+#   1. test   - lint and unit test the app, lint and validate the chart
+#   2. build  - build a multi-arch image, scan it, push it to GHCR
+#   3. release - write the new image tag into the Helm values and commit
+# Argo CD watches the repo and deploys that commit. CI never touches the
+# cluster, so it needs no cluster credentials at all.
+#
+# Pull requests only run step 1.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    name: Test and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Lint (ruff)
+        working-directory: app
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Unit tests (pytest)
+        working-directory: app
+        run: pytest -q
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint Helm chart
+        run: helm lint charts/shortener --strict
+
+      # Render the chart and check every resource against the real
+      # Kubernetes API schemas, so typos fail here, not in the cluster.
+      - name: Validate manifests (kubeconform)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          helm template shortener charts/shortener | ./kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+      # Checkov scans the chart for security misconfigurations
+      # (running as root, missing limits, privilege escalation...).
+      - name: Security scan chart (Checkov)
+        run: |
+          pipx install checkov
+          checkov -d charts/shortener --framework helm --quiet --compact --config-file .checkov.yaml
+
+  build:
+    name: Build, scan and push image
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to GitHub Container Registry with GITHUB_TOKEN
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # QEMU + Buildx let one runner build for both Intel (amd64) and
+      # ARM (arm64), so the image runs on any laptop or cloud node.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # built in, nothing to set up
+
+      # Build for the runner's own platform first and load it locally,
+      # so it can be scanned BEFORE anything is pushed.
+      - name: Build image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          load: true
+          tags: ${{ env.IMAGE }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Fail the pipeline on any CRITICAL vulnerability that has a fix
+      # available. A vulnerable image never reaches the registry.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ env.IMAGE }}:scan
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+
+  release:
+    name: Update image tag in Git (GitOps)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the new tag back to main
+    # Two pushes close together must not race to edit values.yaml.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Bump image tag in values.yaml
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          sed -i -E "s/^(  tag: ).*/\1\"${TAG}\" # replaced by CI with the commit SHA/" charts/shortener/values.yaml
+          grep -n '  tag:' charts/shortener/values.yaml
+
+      # A commit made with GITHUB_TOKEN does not trigger another workflow
+      # run, so this can't loop. Argo CD picks it up instead.
+      - name: Commit and push
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add charts/shortener/values.yaml
+          if git diff --cached --quiet; then
+            echo "Tag already ${TAG}, nothing to commit"
+            exit 0
+          fi
+          git commit -m "deploy: shortener ${TAG}"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "### Released \`${TAG}\`. Argo CD will deploy it within ~3 minutes." >> "$GITHUB_STEP_SUMMARY"

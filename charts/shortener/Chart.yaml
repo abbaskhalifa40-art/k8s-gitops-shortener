@@ -1,0 +1,6 @@
+apiVersion: v2
+name: shortener
+description: URL shortener API with Redis, deployed via Argo CD
+type: application
+version: 0.1.0
+appVersion: "dev"

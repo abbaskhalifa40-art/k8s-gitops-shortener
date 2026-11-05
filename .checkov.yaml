@@ -1,0 +1,16 @@
+# Checkov config. Every skipped check is a deliberate design decision,
+# written down here so it can be reviewed, not silently ignored.
+skip-check:
+  # Namespace is set by Argo CD at deploy time (destination.namespace),
+  # so the chart itself is namespace-agnostic, which is standard practice.
+  - CKV_K8S_21
+  # No CPU limits on purpose: CPU limits cause throttling even when the
+  # node has spare CPU. Requests reserve capacity, and the HPA scales
+  # on CPU. Memory limits ARE set, because memory can't be throttled.
+  - CKV_K8S_11
+  # Image tags are git commit SHAs and never reused, so IfNotPresent is
+  # safe and avoids a registry pull on every pod start.
+  - CKV_K8S_15
+  # Pinning by digest is the next step: CI would write the digest
+  # instead of the tag. Tracked as a future improvement.
+  - CKV_K8S_43

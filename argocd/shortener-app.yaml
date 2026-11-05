@@ -1,0 +1,26 @@
+# The Argo CD Application: "keep the cluster in sync with the Helm chart
+# in this Git repo". When CI commits a new image tag to values.yaml,
+# Argo CD notices and rolls it out. Nobody runs kubectl apply or
+# helm upgrade by hand: Git is the only way to change what's deployed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shortener
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abbaskhalifa40-art/k8s-gitops-shortener.git
+    targetRevision: main
+    path: charts/shortener
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shortener
+  syncPolicy:
+    automated:
+      prune: true    # delete resources that were removed from Git
+      selfHeal: true # undo manual changes made with kubectl
+    syncOptions:
+      - CreateNamespace=true
+      # Server-side apply: the HPA owns replica counts, so let it.
+      - ServerSideApply=true

@@ -1,0 +1,13 @@
+# Keeps at least one API pod running during voluntary disruptions,
+# such as a node being drained for an upgrade.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "shortener.selectorLabels" . | nindent 6 }}

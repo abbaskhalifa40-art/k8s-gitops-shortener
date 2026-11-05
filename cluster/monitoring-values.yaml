@@ -1,0 +1,20 @@
+# kube-prometheus-stack: Prometheus, Grafana, Alertmanager and
+# exporters for node and cluster metrics.
+grafana:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts: ["grafana.localtest.me"]
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard # loads any ConfigMap with this label
+      searchNamespace: ALL
+alertmanager:
+  enabled: false # not needed locally, saves memory
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    resources:
+      requests:
+        memory: 400Mi

@@ -1,0 +1,5 @@
+Shortener deployed with image tag {{ .Values.image.tag }}.
+{{- if .Values.ingress.enabled }}
+Try it:
+  curl -X POST http://{{ .Values.ingress.host }}/api/links -H 'Content-Type: application/json' -d '{"url":"https://example.com"}'
+{{- end }}

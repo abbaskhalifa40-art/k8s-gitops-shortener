@@ -1,0 +1,48 @@
+{{- if .Values.networkPolicy.enabled }}
+# Only the API pods may talk to Redis. Anything else in the cluster that
+# tries to connect to port 6379 is blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shortener.redisSelectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "shortener.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 6379
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# API pods only accept traffic on the app port from the ingress
+# controller (user traffic) and Prometheus (metrics scraping).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    {{- include "shortener.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shortener.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8000
+{{- end }}
