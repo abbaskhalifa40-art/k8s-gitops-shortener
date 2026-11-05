@@ -17,3 +17,8 @@ providers:
     # forever, because there's no cloud load balancer on kind.
     ingressEndpoint:
       ip: "127.0.0.1"
+    # The chart also sets publishedService by default, which Traefik
+    # prefers over the IP above. On kind that Service has no external
+    # address, so it must be off for the IP to be used.
+    publishedService:
+      enabled: false
