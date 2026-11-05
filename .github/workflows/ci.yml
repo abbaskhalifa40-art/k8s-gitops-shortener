@@ -111,13 +111,14 @@ jobs:
 
       # Fail the pipeline on any CRITICAL vulnerability that has a fix
       # available. A vulnerable image never reaches the registry.
+      # Runs Trivy's official image pinned to an exact version, rather
+      # than a third-party action, to keep the supply chain small.
       - name: Scan image (Trivy)
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: ${{ env.IMAGE }}:scan
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.2 image \
+            --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            "${IMAGE}:scan"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
