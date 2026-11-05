@@ -10,3 +10,10 @@ ports:
 ingressClass:
   enabled: true
   isDefaultClass: true
+providers:
+  kubernetesIngress:
+    # Writes 127.0.0.1 into each Ingress's status. Without an address,
+    # Argo CD treats the Ingress (and so the whole app) as "Progressing"
+    # forever, because there's no cloud load balancer on kind.
+    ingressEndpoint:
+      ip: "127.0.0.1"
